@@ -13,9 +13,12 @@ from mcp.server.fastmcp import FastMCP
 # ── Configuración ──────────────────────────────────────────────────────────────
 KIZEO_TOKEN = os.environ["KIZEO_TOKEN"]          # Token de la API de Kizeo
 BASE_URL = "https://www.kizeoforms.com/rest/v3"
+PORT = int(os.environ.get("PORT", 8000))
 
 mcp = FastMCP(
     "kizeo",
+    host="0.0.0.0",
+    port=PORT,
     instructions=(
         "Herramientas para consultar formularios y registros de Kizeo Forms. "
         "Úsalas cuando el usuario pida datos de supervisiones, inducciones, EPP, "
@@ -198,5 +201,5 @@ def _fmt(r: dict) -> str:
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=port)
+    mcp.run(transport="streamable-http")
+

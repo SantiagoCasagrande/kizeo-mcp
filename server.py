@@ -83,15 +83,15 @@ def get_form_records(
     """
     filters = []
     if since_date:
-        filters.append({"col": "_create_time", "ope": ">=", "val": since_date})
+        filters.append({"field": "_create_time", "operator": ">=", "type": "datetime", "val": since_date})
     if user_name:
-        filters.append({"col": "_user_name", "ope": "like", "val": f"%{user_name}%"})
+        filters.append({"field": "_user_name", "operator": "like", "type": "string", "val": f"%{user_name}%"})
     body = {
         "filters": filters,
-        "order": {"col": "_update_time", "type": "desc"},
+        "order": [{"col": "_update_time", "type": "desc"}],
         "number_of_data": min(int(limit), 100)
     }
-    records = _post(f"/forms/{form_id}/data/exports/json", body).get("data", [])
+    records = _post(f"/forms/{form_id}/data/advanced", body).get("data", [])
     if not records:
         return f"No se encontraron registros en el formulario {form_id}."
     lines = [f"Formulario {form_id} — {len(records)} registros:\n"]
@@ -134,11 +134,11 @@ def search_records(form_id: str, field: str, value: str, limit: int = 20) -> str
         limit: Máximo de resultados
     """
     body = {
-        "filters": [{"col": field, "ope": "like", "val": f"%{value}%"}],
-        "order": {"col": "_update_time", "type": "desc"},
+        "filters": [{"field": field, "operator": "like", "type": "string", "val": f"%{value}%"}],
+        "order": [{"col": "_update_time", "type": "desc"}],
         "number_of_data": min(int(limit), 100)
     }
-    records = _post(f"/forms/{form_id}/data/exports/json", body).get("data", [])
+    records = _post(f"/forms/{form_id}/data/advanced", body).get("data", [])
     if not records:
         return f"No se encontraron registros donde '{field}' contenga '{value}'."
     lines = [f"Búsqueda '{field}' ≈ '{value}' — {len(records)} resultado(s):\n"]
@@ -159,11 +159,11 @@ def get_form_stats(form_id: str, since_date: str = None) -> str:
     if not since_date:
         since_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
     body = {
-        "filters": [{"col": "_create_time", "ope": ">=", "val": since_date}],
-        "order": {"col": "_create_time", "type": "asc"},
+        "filters": [{"field": "_create_time", "operator": ">=", "type": "datetime", "val": since_date}],
+        "order": [{"col": "_create_time", "type": "asc"}],
         "number_of_data": 500
     }
-    records = _post(f"/forms/{form_id}/data/exports/json", body).get("data", [])
+    records = _post(f"/forms/{form_id}/data/advanced", body).get("data", [])
     if not records:
         return f"No hay registros desde {since_date}."
     user_counts: dict = {}
@@ -171,7 +171,7 @@ def get_form_stats(form_id: str, since_date: str = None) -> str:
     for r in records:
         user = r.get("_user_name", r.get("_recipient_name", "Desconocido"))
         user_counts[user] = user_counts.get(user, 0) + 1
-        day = str(r.get("_create_time", ""))[:10]
+        day = str(r.get("_create_time", ""))[:16][:10]
         if day:
             dates[day] = dates.get(day, 0) + 1
     lines = [

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+    #!/usr/bin/env python3
 """
 Kizeo Forms MCP Server — HTTP transport
 Deploy en Render.com y registrar como conector en claude.ai
@@ -150,7 +150,10 @@ def search_records(form_id: str, field: str, value: str, limit: int = 20) -> str
 @mcp.tool()
 def get_form_stats(form_id: str, since_date: str = None) -> str:
     """
-    Estadísticas de uso de un formulario: total de registros, usuarios activos, frecuencia.
+    Estadísticas de uso de un formulario: total, usuarios, frecuencia.
+    Para el formulario 991286 (Checklist Supervisión) incluye además:
+    breakdown por supervisor, instalación, checklist items y puntajes.
+    Incluye bloque JSON_DATA al final para uso programático.
 
     Args:
         form_id: ID del formulario
@@ -166,24 +169,130 @@ def get_form_stats(form_id: str, since_date: str = None) -> str:
     records = _post(f"/forms/{form_id}/data/advanced", body).get("data", [])
     if not records:
         return f"No hay registros desde {since_date}."
-    user_counts: dict = {}
+
+    def _v(x):
+        if x is None: return None
+        if isinstance(x, str): return x
+        if isinstance(x, bool): return "Sí" if x else "No"
+        if isinstance(x, dict): return x.get("value")
+        if isinstance(x, list) and x:
+            f = x[0]
+            return f.get("value") if isinstance(f, dict) else str(f)
+        return str(x)
+
+    def _sf(sub, key):
+        if not sub: return None
+        rows = sub if isinstance(sub, list) else [sub]
+        if not rows: return None
+        row = rows[0]
+        if not isinstance(row, dict): return None
+        cell = row.get(key)
+        return cell.get("value") if isinstance(cell, dict) else cell
+
     dates: dict = {}
+    supervisor_counts: dict = {}
+    instalacion_counts: dict = {}
+    libro_ok = libro_no = 0
+    zona_ok = zona_no = 0
+    caseta_issues_count: dict = {}
+    puntajes = []
+    records_data = []
+
     for r in records:
-        user = r.get("_user_name", r.get("_recipient_name", "Desconocido"))
-        user_counts[user] = user_counts.get(user, 0) + 1
-        day = str(r.get("_create_time", ""))[:10]
-        if day:
-            dates[day] = dates.get(day, 0) + 1
+        day = str(r.get("answer_time", r.get("_create_time", "")))[:10]
+        if day: dates[day] = dates.get(day, 0) + 1
+
+        sup = _v(r.get("supervisor")) or "Sin asignar"
+        supervisor_counts[sup] = supervisor_counts.get(sup, 0) + 1
+
+        inst = _v(r.get("instalacion")) or "Desconocida"
+        instalacion_counts[inst] = instalacion_counts.get(inst, 0) + 1
+
+        libro = _v(r.get("libro_al_dia"))
+        if libro == "Sí": libro_ok += 1
+        elif libro == "No": libro_no += 1
+
+        zona = _v(r.get("zona_de_trabajo_limpia"))
+        if zona == "Sí": zona_ok += 1
+        elif zona == "No": zona_no += 1
+
+        caseta_raw = r.get("estado_de_la_caseta_garita_po")
+        for item in ["puertas", "ventanas", "sillas", "escritorio_meson", "paredes"]:
+            v = _sf(caseta_raw, item)
+            if v and v != "Buen estado.":
+                caseta_issues_count[item] = caseta_issues_count.get(item, 0) + 1
+
+        pres_raw = r.get("uso_del_uniforme_y_presentaci")
+        score_str = _sf(pres_raw, "resultado")
+        score = int(score_str) if score_str and str(score_str).isdigit() else None
+        guardia = _sf(pres_raw, "nombre_y_apellido")
+        if score is not None: puntajes.append(score)
+
+        caseta_raw2 = r.get("estado_de_la_caseta_garita_po")
+        c_issues = []
+        for item in ["puertas", "ventanas", "sillas", "escritorio_meson", "paredes"]:
+            v2 = _sf(caseta_raw2, item)
+            if v2 and v2 != "Buen estado.":
+                c_issues.append(f"{item}: {v2}")
+
+        records_data.append({
+            "id": r.get("_id", r.get("id", "")),
+            "fecha": _v(r.get("fecha")) or day,
+            "hora": _v(r.get("hora")),
+            "instalacion": inst,
+            "zona": r.get("instalacion", {}).get("path", "") if isinstance(r.get("instalacion"), dict) else "",
+            "supervisor": sup,
+            "libro_al_dia": libro == "Sí" if libro else None,
+            "zona_limpia": zona == "Sí" if zona else None,
+            "caseta_ok": len(c_issues) == 0,
+            "caseta_issues": c_issues,
+            "puntaje_presentacion": score,
+            "guardia": guardia,
+            "answer_time": day,
+        })
+
+    avg_score = round(sum(puntajes) / len(puntajes), 1) if puntajes else None
+    total = len(records)
+    libro_pct = round(libro_ok / (libro_ok + libro_no) * 100, 1) if (libro_ok + libro_no) else None
+    zona_pct = round(zona_ok / (zona_ok + zona_no) * 100, 1) if (zona_ok + zona_no) else None
+
     lines = [
         f"## Estadísticas formulario {form_id}",
-        f"Período: desde {since_date}  |  Total: {len(records)} registros\n",
-        "### Por usuario:"
+        f"Período: desde {since_date}  |  Total: {total} registros\n",
+        "### Por supervisor:"
     ]
-    for user, count in sorted(user_counts.items(), key=lambda x: -x[1]):
-        lines.append(f"  {user}: {count}")
-    lines.append("\n### Últimos 7 días con actividad:")
-    for day in sorted(dates.keys())[-7:]:
+    for sup, count in sorted(supervisor_counts.items(), key=lambda x: -x[1]):
+        lines.append(f"  {sup}: {count}")
+    lines.append("\n### Por instalación (top 10):")
+    for inst, count in sorted(instalacion_counts.items(), key=lambda x: -x[1])[:10]:
+        lines.append(f"  {inst}: {count}")
+    lines.append(f"\n### Checklist:")
+    if libro_pct is not None: lines.append(f"  Libro al día: {libro_pct}% ({libro_ok}/{libro_ok+libro_no})")
+    if zona_pct is not None: lines.append(f"  Zona limpia: {zona_pct}% ({zona_ok}/{zona_ok+zona_no})")
+    if avg_score is not None: lines.append(f"  Puntaje presentación promedio: {avg_score}/100")
+    if caseta_issues_count:
+        lines.append("  Problemas caseta: " + ", ".join(f"{k}({v})" for k,v in caseta_issues_count.items()))
+    lines.append("\n### Actividad por día:")
+    for day in sorted(dates.keys()):
         lines.append(f"  {day}: {dates[day]} registro(s)")
+
+    # Bloque JSON para uso programático (dashboard)
+    json_data = {
+        "total": total,
+        "since": since_date,
+        "supervisores": supervisor_counts,
+        "instalaciones": instalacion_counts,
+        "por_dia": dates,
+        "checklist": {
+            "libro_ok": libro_ok, "libro_no": libro_no, "libro_pct": libro_pct,
+            "zona_ok": zona_ok, "zona_no": zona_no, "zona_pct": zona_pct,
+            "puntaje_promedio": avg_score,
+            "caseta_issues": caseta_issues_count,
+        },
+        "records": records_data,
+    }
+    lines.append("\n### JSON_DATA")
+    lines.append(json.dumps(json_data, ensure_ascii=False))
     return "\n".join(lines)
 
 # ── Utilidad ───────────────────────────────────────────────────────────────────

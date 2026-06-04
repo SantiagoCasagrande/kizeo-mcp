@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: kizeo-mcp
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
+    envVars:
+      - key: KIZEO_TOKEN
+        sync: false   # Se ingresa manualmente en el dashboard de Render (no queda en el repo)
+    healthCheckPath: /health

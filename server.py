@@ -83,7 +83,7 @@ def get_form_records(
     """
     filters = []
     if since_date:
-        filters.append({"field": "_create_time", "operator": ">=", "type": "datetime", "val": since_date})
+        filters.append({"field": "answer_time", "operator": ">=", "type": "datetime", "val": since_date})
     if user_name:
         filters.append({"field": "_user_name", "operator": "like", "type": "string", "val": f"%{user_name}%"})
     body = {
@@ -159,8 +159,8 @@ def get_form_stats(form_id: str, since_date: str = None) -> str:
     if not since_date:
         since_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
     body = {
-        "filters": [{"field": "_create_time", "operator": ">=", "type": "datetime", "val": since_date}],
-        "order": [{"col": "_create_time", "type": "asc"}],
+        "filters": [{"field": "answer_time", "operator": ">=", "type": "datetime", "val": since_date}],
+        "order": [{"col": "answer_time", "type": "asc"}],
         "number_of_data": 500
     }
     records = _post(f"/forms/{form_id}/data/advanced", body).get("data", [])
@@ -245,8 +245,8 @@ def get_supervision_data(since_date: str = None) -> str:
         since_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
 
     body = {
-        "filters": [{"field": "_create_time", "operator": ">=", "type": "datetime", "val": since_date}],
-        "order": [{"col": "_create_time", "type": "desc"}]
+        "filters": [{"field": "answer_time", "operator": ">=", "type": "datetime", "val": since_date}],
+        "order": [{"col": "answer_time", "type": "desc"}]
     }
     records = _post("/forms/991286/data/advanced", body).get("data", [])
 
